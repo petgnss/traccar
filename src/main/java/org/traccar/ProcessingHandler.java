@@ -21,6 +21,8 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.config.Config;
 import org.traccar.database.BufferingManager;
 import org.traccar.database.NotificationManager;
@@ -29,6 +31,7 @@ import org.traccar.handler.ComputedAttributesHandler;
 import org.traccar.handler.CopyAttributesHandler;
 import org.traccar.handler.DatabaseHandler;
 import org.traccar.handler.DistanceHandler;
+import org.traccar.handler.DriverHandler;
 import org.traccar.handler.EngineHoursHandler;
 import org.traccar.handler.FilterHandler;
 import org.traccar.handler.GeocoderHandler;
@@ -41,7 +44,7 @@ import org.traccar.handler.PositionForwardingHandler;
 import org.traccar.handler.PostProcessHandler;
 import org.traccar.handler.SpeedLimitHandler;
 import org.traccar.handler.TimeHandler;
-import org.traccar.handler.events.AlertEventHandler;
+import org.traccar.handler.events.AlarmEventHandler;
 import org.traccar.handler.events.BaseEventHandler;
 import org.traccar.handler.events.BehaviorEventHandler;
 import org.traccar.handler.events.CommandResultEventHandler;
@@ -56,6 +59,7 @@ import org.traccar.handler.events.OverspeedEventHandler;
 import org.traccar.handler.network.AcknowledgementHandler;
 import org.traccar.helper.PositionLogger;
 import org.traccar.model.Position;
+import org.traccar.session.cache.CacheManager;
 
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -63,13 +67,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Singleton
 @ChannelHandler.Sharable
 public class ProcessingHandler extends ChannelInboundHandlerAdapter implements BufferingManager.Callback {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ProcessingHandler.class);
+
+    private final CacheManager cacheManager;
     private final NotificationManager notificationManager;
     private final PositionLogger positionLogger;
     private final BufferingManager bufferingManager;
@@ -85,7 +91,9 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
 
     @Inject
     public ProcessingHandler(
-            Injector injector, Config config, NotificationManager notificationManager, PositionLogger positionLogger) {
+            Injector injector, Config config,
+            CacheManager cacheManager, NotificationManager notificationManager, PositionLogger positionLogger) {
+        this.cacheManager = cacheManager;
         this.notificationManager = notificationManager;
         this.positionLogger = positionLogger;
         bufferingManager = new BufferingManager(config, this);
@@ -103,12 +111,13 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
                 MotionHandler.class,
                 ComputedAttributesHandler.class,
                 EngineHoursHandler.class,
+                DriverHandler.class,
                 CopyAttributesHandler.class,
                 PositionForwardingHandler.class,
                 DatabaseHandler.class)
                 .map((clazz) -> (BasePositionHandler) injector.getInstance(clazz))
                 .filter(Objects::nonNull)
-                .collect(Collectors.toUnmodifiableList());
+                .toList();
 
         eventHandlers = Stream.of(
                 MediaEventHandler.class,
@@ -118,13 +127,13 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
                 FuelEventHandler.class,
                 MotionEventHandler.class,
                 GeofenceEventHandler.class,
-                AlertEventHandler.class,
+                AlarmEventHandler.class,
                 IgnitionEventHandler.class,
                 MaintenanceEventHandler.class,
                 DriverEventHandler.class)
                 .map((clazz) -> (BaseEventHandler) injector.getInstance(clazz))
                 .filter(Objects::nonNull)
-                .collect(Collectors.toUnmodifiableList());
+                .toList();
 
         postProcessHandler = injector.getInstance(PostProcessHandler.class);
     }
@@ -147,6 +156,11 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
             queue.offer(position);
         }
         if (!queued) {
+            try {
+                cacheManager.addDevice(position.getDeviceId(), position.getDeviceId());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
             processPositionHandlers(context, position);
         }
     }
@@ -197,6 +211,8 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
         }
         if (nextPosition != null) {
             processPositionHandlers(ctx, nextPosition);
+        } else {
+            cacheManager.removeDevice(deviceId, deviceId);
         }
     }
 
