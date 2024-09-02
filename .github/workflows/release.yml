@@ -47,11 +47,11 @@ jobs:
           wget -q https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.2+13/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.2_13.tar.gz
           ./package.sh ${{ github.event.inputs.version }}
 
-      id: create_release
-      uses: actions/create-release@v1
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: false
-        prerelease: false
+      - name: Upload installers to GitHub Releases
+        uses: softprops/action-gh-release@v1
+        with:
+          tag: ${{ github.event.inputs.version }}
+          files: ./setup/traccar-*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
