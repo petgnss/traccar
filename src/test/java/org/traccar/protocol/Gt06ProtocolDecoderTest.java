@@ -526,6 +526,18 @@ public class Gt06ProtocolDecoderTest extends ProtocolTest {
                 "78782516180516150812c804b50ee80880e40805dcf909012e000000986633460604190106c393490d0a"),
                 Position.KEY_ALARM, Position.ALARM_ACCELERATION);
 
+        decoder.setModelOverride("SEEWORLD");
+
+        verifyAttribute(decoder, binary(
+                "78780a134506560b0102242b850d0a"),
+                Position.KEY_POWER, 11.0);
+
+        decoder.setModelOverride("R11");
+
+        verifyAttribute(decoder, binary(
+                "78780a13460b120400160642c20d0a"),
+                Position.KEY_POWER, 28.34);
+
     }
 
 }
